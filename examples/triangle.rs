@@ -1,82 +1,122 @@
+//! Triangle rendering example using the new RAII API
+//!
+//! This example demonstrates:
+//! - Using VitaGlBuilder for initialization
+//! - RAII Buffer, Shader, and Program types
+//! - attribute_table! macro for vertex attributes
+
 use vita_gl_helpers::{
-    attribute::{AttributeFormat, AttributeSize, AttributeTable, AttributeType},
+    attribute::{AttributeFormat, AttributeSize, AttributeType},
     attribute_table,
-    buffer::{Buffer, GenDelBuffersExt},
-    draw::{Elements, ElementsBufU32, Mode},
+    buffer::Buffer,
+    draw::{Elements, Mode},
     errors::eprintln_errors,
-    initialise_default,
-    program::link_program,
-    shader::load_shader,
-    swap_buffers,
+    program::Program,
+    shader::{Shader, ShaderType},
+    VitaGlBuilder,
 };
 
+// Define attribute table for our shader
 attribute_table!(MyAttributeTable,
-  pos => "aPos",
-  color => "aColor"
+    pos => "aPos",
+    color => "aColor"
 );
 
 const VERTEX_POS: &[f32; 6] = &[0.0, 0.5, 0.5, -0.5, -0.5, -0.5];
 const VERTEX_COLOR: &[u32; 3] = &[0xFF0000FFu32, 0xFF00FF00, 0xFFFF0000];
 
 fn main() {
-    initialise_default();
-    let program = link_program(
-        load_shader(
-            "
-            void main(float2 aPos,float4 aColor,float4 out gl_Position : POSITION, float4 out vColor: COLOR0) {
-              gl_Position = float4(aPos,0.0,1.0);
-              vColor = aColor;
-            }
-            ",
-            gl::VERTEX_SHADER,
-        )
-        .unwrap(),
-        load_shader(
-            "
-            float4 main(float4 vColor: COLOR0) {
-                return vColor;
-            }
-            ",
-            gl::FRAGMENT_SHADER,
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let atable = MyAttributeTable::with_locations_from(&program).unwrap();
-    let mut buffers = [Buffer::default(); 3];
-    buffers.gen_buffers();
+    // Initialize vitaGL with builder pattern
+    let ctx = VitaGlBuilder::new()
+        .build()
+        .expect("Failed to initialize vitaGL");
 
-    buffers[0].data(gl::ARRAY_BUFFER, VERTEX_POS, gl::STATIC_DRAW);
-    buffers[1].data(gl::ARRAY_BUFFER, VERTEX_COLOR, gl::STATIC_DRAW);
-    buffers[2].data(gl::ELEMENT_ARRAY_BUFFER, &[0u32, 1, 2], gl::STATIC_DRAW);
+    // Compile shaders (automatically deleted when dropped)
+    let vert_shader = Shader::compile(
+        r#"
+        void main(float2 aPos, float4 aColor, float4 out gl_Position : POSITION, float4 out vColor: COLOR0) {
+            gl_Position = float4(aPos, 0.0, 1.0);
+            vColor = aColor;
+        }
+        "#,
+        ShaderType::Vertex,
+    )
+    .expect("Failed to compile vertex shader");
+
+    let frag_shader = Shader::compile(
+        r#"
+        float4 main(float4 vColor: COLOR0) {
+            return vColor;
+        }
+        "#,
+        ShaderType::Fragment,
+    )
+    .expect("Failed to compile fragment shader");
+
+    // Link program (automatically deleted when dropped)
+    let program = Program::link(&vert_shader, &frag_shader)
+        .expect("Failed to link program");
+
+    // Get attribute locations
+    let atable = program.get_attribute_table::<MyAttributeTable>()
+        .expect("Failed to get attribute table");
+
+    // Create buffers using the new API (automatically deleted when dropped)
+    let pos_buffer = Buffer::new();
+    let color_buffer = Buffer::new();
+    let index_buffer = Buffer::new();
+
+    // Upload data to buffers
+    pos_buffer.data(gl::ARRAY_BUFFER, VERTEX_POS, gl::STATIC_DRAW);
+    color_buffer.data(gl::ARRAY_BUFFER, VERTEX_COLOR, gl::STATIC_DRAW);
+    index_buffer.data(gl::ELEMENT_ARRAY_BUFFER, &[0u32, 1, 2], gl::STATIC_DRAW);
+
+    // Set clear color
     unsafe {
         gl::ClearColor(1.0, 1.0, 1.0, 1.0);
     }
+
+    // Define attribute formats
     let pos_format = AttributeFormat {
         normalized: false,
-        size: AttributeSize::TWO,
+        size: AttributeSize::Two,
         type_: AttributeType::Float,
     };
     let color_format = AttributeFormat {
         normalized: true,
-        size: AttributeSize::FOUR,
+        size: AttributeSize::Four,
         type_: AttributeType::UnsignedByte,
     };
+
+    // Main render loop
     loop {
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT);
         }
-        program.use_me(); //glUseProgram
-        atable.pos.enable(); //glEnableVertexAttribArray(0)
-        atable.color.enable(); //glEnableVertexAttribArray(1)
-        buffers[0].bind_to(atable.pos, pos_format, 0, 0); //glBindBuffer + glVertexAttribPointer
-        buffers[1].bind_to(atable.color, color_format, 0, 0); //glBindBuffer + glVertexAttribPointer
-        ElementsBufU32 {
-            indices: buffers[2],
+
+        // Use program
+        program.use_program();
+
+        // Enable vertex attributes
+        atable.pos.enable();
+        atable.color.enable();
+
+        // Bind buffers to attributes
+        pos_buffer.bind_to(atable.pos, pos_format, 0, 0);
+        color_buffer.bind_to(atable.color, color_format, 0, 0);
+
+        // Draw using index buffer
+        use vita_gl_helpers::draw::ElementsBufIdU32;
+        ElementsBufIdU32 {
+            buffer_id: index_buffer.id_unwrap(),
             len: 3,
         }
-        .draw(Mode::Triangles); //glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,buffers[2]) + glDrawElements
-        swap_buffers(); //vglSwapBuffers(GL_FALSE)
+        .draw(Mode::Triangles);
+
+        // Swap buffers
+        ctx.swap_buffers();
+
+        // Check for errors
         eprintln_errors();
     }
 }

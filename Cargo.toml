@@ -1,8 +1,23 @@
 [package]
 name = "vita_gl_helpers"
-version = "0.1.0"
-edition = "2024"
+version = "0.2.0"
+edition = "2021"
+authors = ["LexiBigCheese"]
+description = "Safe, ergonomic helpers for vitaGL development on PlayStation Vita"
+repository = "https://github.com/LexiBigCheese/vita_gl_helpers"
+license = "MIT OR Apache-2.0"
+keywords = ["vita", "playstation", "opengl", "graphics", "homebrew"]
+categories = ["graphics", "game-development", "rendering"]
+readme = "README.md"
+
+[features]
+default = []
+debug-gl = []
+logging = ["log"]
 
 [dependencies]
-derive_more = { version = "2.1.1", features = ["from", "into", "try_from"] }
+derive_more = { version = "2.1.1", features = ["from", "into", "try_from", "display"] }
 gl = "0.14.0"
+log = { version = "0.4", optional = true }
+
+[dev-dependencies]
